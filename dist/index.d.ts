@@ -9,9 +9,11 @@ export declare namespace physics {
         /** A circular shape */
         CIRCLE = 0,
         /** A rectangle shape */
-        RECTANGLE = 1
+        RECTANGLE = 1,
+        /** A line segment shape */
+        LINE = 2
     }
-    export type Shape = Rectangle | Circle;
+    export type Shape = Rectangle | Circle | Line;
     export type BaseShape = {
         /** The id given to this shape */
         id: number;
@@ -49,6 +51,19 @@ export declare namespace physics {
         vertices: Vector2[];
         /** The angle of the rectangle */
         angle: number;
+    } & BaseShape;
+    export type Line = {
+        type: ShapeType.LINE;
+        /** The start point of the line segment */
+        start: Vector2;
+        /** The end point of the line segment */
+        end: Vector2;
+        /** The unit direction of the line segment */
+        direction: Vector2;
+        /** The outward normal of the line segment */
+        normal: Vector2;
+        /** The length of the line segment */
+        length: number;
     } & BaseShape;
     /**
      * Two dimension vector
@@ -275,6 +290,18 @@ export declare namespace physics {
      */
     export function createRectangle(world: World, center: Vector2, width: number, height: number, mass: number, friction: number, restitution: number, sensor?: boolean, data?: any): Body;
     /**
+     * Create a body with a line segment shape
+     *
+     * @param world The world in which to create the body
+     * @param start The start point of the line segment
+     * @param end The end point of the line segment
+     * @param mass The mass to give the newly created body
+     * @param friction The friction to apply during collisions with the new body
+     * @param restitution The restitution to apply during collisions with the new body
+     * @returns The newly created body
+     */
+    export function createLine(world: World, start: Vector2, end: Vector2, mass: number, friction: number, restitution: number, sensor?: boolean, data?: any): Body;
+    /**
      * Move a body
      *
      * @param body The body to move
@@ -399,6 +426,7 @@ export declare namespace physics {
     export function applyVelocity(body: DynamicRigidBody, vel: Vector2): void;
     export function createCircleShape(world: World, center: Vector2, radius: number, sensor?: boolean): Circle;
     export function createRectangleShape(world: World, center: Vector2, width: number, height: number, ang?: number, sensor?: boolean): Rectangle;
+    export function createLineShape(world: World, start: Vector2, end: Vector2, sensor?: boolean): Line;
     export function createRigidBody(world: World, center: Vector2, mass: number, friction: number, restitution: number, shapes: Shape[], data?: any, floating?: boolean): Body;
     /**
      * Add a body to the world

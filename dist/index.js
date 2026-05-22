@@ -15,6 +15,8 @@ export var physics;
         ShapeType[ShapeType["CIRCLE"] = 0] = "CIRCLE";
         /** A rectangle shape */
         ShapeType[ShapeType["RECTANGLE"] = 1] = "RECTANGLE";
+        /** A line segment shape */
+        ShapeType[ShapeType["LINE"] = 2] = "LINE";
     })(ShapeType = physics.ShapeType || (physics.ShapeType = {}));
     function ensureOrder(world) {
         world.dynamicBodies.sort((a, b) => a.id - b.id);
@@ -105,6 +107,12 @@ export var physics;
                         max.x = Math.max(max.x, vert.x);
                         max.y = Math.max(max.y, vert.y);
                     }
+                }
+                else if (shape.type === ShapeType.LINE) {
+                    min.x = Math.min(min.x, shape.start.x, shape.end.x);
+                    min.y = Math.min(min.y, shape.start.y, shape.end.y);
+                    max.x = Math.max(max.x, shape.start.x, shape.end.x);
+                    max.y = Math.max(max.y, shape.start.y, shape.end.y);
                 }
             }
         }
@@ -246,6 +254,23 @@ export var physics;
     physics.createRectangle = createRectangle;
     ;
     /**
+     * Create a body with a line segment shape
+     *
+     * @param world The world in which to create the body
+     * @param start The start point of the line segment
+     * @param end The end point of the line segment
+     * @param mass The mass to give the newly created body
+     * @param friction The friction to apply during collisions with the new body
+     * @param restitution The restitution to apply during collisions with the new body
+     * @returns The newly created body
+     */
+    function createLine(world, start, end, mass, friction, restitution, sensor = false, data) {
+        const line = createLineShape(world, start, end, sensor);
+        return createRigidBody(world, { ...line.center }, mass, friction, restitution, [line], data);
+    }
+    physics.createLine = createLine;
+    ;
+    /**
      * Move a body
      *
      * @param body The body to move
@@ -274,6 +299,11 @@ export var physics;
                     shape.vertices[i] = addVec2(shape.vertices[i], v);
                 }
                 updateBoundingBox(shape);
+            }
+            else if (shape.type === ShapeType.LINE) {
+                shape.start = addVec2(shape.start, v);
+                shape.end = addVec2(shape.end, v);
+                updateLineGeometry(shape);
             }
         }
     }
@@ -318,6 +348,11 @@ export var physics;
                 }
                 updateRectNormals(shape);
                 updateBoundingBox(shape);
+            }
+            else if (shape.type === ShapeType.LINE) {
+                shape.start = rotateVec2(shape.start, center, angle);
+                shape.end = rotateVec2(shape.end, center, angle);
+                updateLineGeometry(shape);
             }
         }
     }
@@ -406,6 +441,9 @@ export var physics;
                 body.restingTime = 0;
             }
             if (bodyAtRest(world, body)) {
+                body.velocity.x = 0;
+                body.velocity.y = 0;
+                body.angularVelocity = 0;
                 continue;
             }
             // Update position/rotation
@@ -770,7 +808,9 @@ export var physics;
     function calculateInertia(shape, mass) {
         return shape.type === ShapeType.RECTANGLE // inertia
             ? (Math.hypot(shape.width, shape.height) / 2, mass > 0 ? 1 / (mass * (shape.width ** 2 + shape.height ** 2) / 12) : 0) // rectangle
-            : (mass > 0 ? (mass * shape.bounds ** 2) / 12 : 0); // circle;
+            : shape.type === ShapeType.LINE
+                ? (mass > 0 ? 1 / (mass * shape.length ** 2 / 12) : 0)
+                : (mass > 0 ? (mass * shape.bounds ** 2) / 12 : 0); // circle;
     }
     function createCircleShape(world, center, radius, sensor = false) {
         // the original code only works well with whole number static objects
@@ -823,6 +863,31 @@ export var physics;
         };
     }
     physics.createRectangleShape = createRectangleShape;
+    function createLineShape(world, start, end, sensor = false) {
+        start.x = Math.floor(start.x);
+        start.y = Math.floor(start.y);
+        end.x = Math.floor(end.x);
+        end.y = Math.floor(end.y);
+        const line = {
+            id: world.nextId++,
+            type: ShapeType.LINE,
+            start,
+            end,
+            center: newVec2(0, 0),
+            direction: newVec2(0, 0),
+            normal: newVec2(0, 0),
+            length: 0,
+            bounds: 0,
+            boundingBox: newVec2(0, 0),
+            sensor,
+            sensorColliding: false,
+            sensorCollisions: [],
+            inertia: 0,
+        };
+        updateLineGeometry(line);
+        return line;
+    }
+    physics.createLineShape = createLineShape;
     // New shape
     function createRigidBody(world, center, mass, friction, restitution, shapes, data, floating = false) {
         const staticBody = {
@@ -911,13 +976,24 @@ export var physics;
         return false;
     }
     function updateBoundingBox(shape) {
-        shape.boundingBox = calcBoundingBox(shape.type, shape.bounds, shape.type === ShapeType.RECTANGLE ? shape.vertices : [], shape.center);
+        shape.boundingBox = calcBoundingBox(shape.type, shape.bounds, shape.type === ShapeType.RECTANGLE ? shape.vertices : [], shape.center, shape.type === ShapeType.LINE ? [shape.start, shape.end] : []);
     }
-    function calcBoundingBox(type, bounds, vertices, center) {
+    function calcBoundingBox(type, bounds, vertices, center, linePoints = []) {
         if (type === ShapeType.CIRCLE) {
             return {
                 x: bounds,
                 y: bounds
+            };
+        }
+        else if (type === ShapeType.LINE) {
+            let x = 0, y = 0;
+            for (const point of linePoints) {
+                x = Math.max(x, Math.abs(center.x - point.x));
+                y = Math.max(y, Math.abs(center.y - point.y));
+            }
+            return {
+                x,
+                y
             };
         }
         else {
@@ -934,6 +1010,87 @@ export var physics;
     }
     function updateRectNormals(rect) {
         rect.faceNormals = computeRectNormals(rect.vertices);
+    }
+    function updateLineGeometry(line) {
+        const delta = subtractVec2(line.end, line.start);
+        line.length = lengthVec2(delta);
+        line.direction = line.length ? normalize(delta) : newVec2(1, 0);
+        line.normal = line.length ? normalize(newVec2(-delta.y, delta.x)) : newVec2(0, -1);
+        line.center = scaleVec2(addVec2(line.start, line.end), 0.5);
+        line.bounds = line.length / 2;
+        updateBoundingBox(line);
+    }
+    function projectPointsOntoAxis(points, axis) {
+        let min = dotProduct(points[0], axis);
+        let max = min;
+        for (let i = 1; i < points.length; i++) {
+            const projection = dotProduct(points[i], axis);
+            min = Math.min(min, projection);
+            max = Math.max(max, projection);
+        }
+        return { min, max };
+    }
+    function intervalOverlap(a, b) {
+        return Math.min(a.max, b.max) - Math.max(a.min, b.min);
+    }
+    function intervalPenetration(a, b) {
+        if (b.min === b.max) {
+            if (b.min < a.min || b.max > a.max) {
+                return -1;
+            }
+            return Math.min(a.max - b.min, b.max - a.min);
+        }
+        return intervalOverlap(a, b);
+    }
+    function closestPointOnSegment(point, start, end) {
+        const segment = subtractVec2(end, start);
+        const segmentLengthSq = dotProduct(segment, segment);
+        if (!segmentLengthSq) {
+            return { ...start };
+        }
+        const t = Math.max(0, Math.min(1, dotProduct(subtractVec2(point, start), segment) / segmentLengthSq));
+        return addVec2(start, scaleVec2(segment, t));
+    }
+    function testLineCircle(line, circle, collisionInfo) {
+        const closestPoint = closestPointOnSegment(circle.center, line.start, line.end);
+        const offset = subtractVec2(circle.center, closestPoint);
+        const distance = lengthVec2(offset);
+        if (distance > circle.bounds) {
+            return false;
+        }
+        const normal = distance ? normalize(offset) : line.normal;
+        const depth = circle.bounds - distance;
+        const start = subtractVec2(circle.center, scaleVec2(normal, circle.bounds));
+        setCollisionInfo(collisionInfo, depth, normal, start, line, circle);
+        return true;
+    }
+    function testRectLine(rect, line, collisionInfo) {
+        const axes = [...rect.faceNormals, line.normal];
+        const linePoints = [line.start, line.end];
+        let bestOverlap = Infinity;
+        let bestAxis = line.normal;
+        for (const axis of axes) {
+            const rectProjection = projectPointsOntoAxis(rect.vertices, axis);
+            const lineProjection = projectPointsOntoAxis(linePoints, axis);
+            const overlap = intervalPenetration(rectProjection, lineProjection);
+            if (overlap <= 0) {
+                return false;
+            }
+            if (overlap < bestOverlap) {
+                bestOverlap = overlap;
+                bestAxis = axis;
+            }
+        }
+        const start = closestPointOnSegment(rect.center, line.start, line.end);
+        let normal = normalize(bestAxis);
+        if (!lengthVec2(normal)) {
+            normal = line.normal;
+        }
+        if (dotProduct(subtractVec2(rect.center, start), normal) < 0) {
+            normal = scaleVec2(normal, -1);
+        }
+        setCollisionInfo(collisionInfo, bestOverlap, normal, start, rect, line);
+        return true;
     }
     // Compute face normals (for rectangles)
     function computeRectNormals(vertices) {
@@ -987,6 +1144,14 @@ export var physics;
         if (body.static) {
             return true;
         }
+        const linearSleepThreshold = 0.5;
+        const angularSleepThreshold = 0.05;
+        if (lengthVec2(body.velocity) > linearSleepThreshold) {
+            return false;
+        }
+        if (Math.abs(body.angularVelocity) > angularSleepThreshold) {
+            return false;
+        }
         return body.restingTime > world.restTime;
     }
     // Test collision between two shapes
@@ -1013,6 +1178,19 @@ export var physics;
                     }
                     continue;
                 }
+                // Line vs Circle
+                if (c1.type === ShapeType.LINE && c2.type === ShapeType.CIRCLE) {
+                    if (testLineCircle(c1, c2, collisionInfo)) {
+                        continue;
+                    }
+                    continue;
+                }
+                if (c1.type === ShapeType.CIRCLE && c2.type === ShapeType.LINE) {
+                    if (testLineCircle(c2, c1, collisionInfo)) {
+                        continue;
+                    }
+                    continue;
+                }
                 // Rect vs Rect
                 if (c1.type == ShapeType.RECTANGLE && c2.type == ShapeType.RECTANGLE) {
                     let status1 = false, status2 = false;
@@ -1033,6 +1211,16 @@ export var physics;
                                 continue;
                             }
                         }
+                    }
+                    continue;
+                }
+                // Rectangle vs Line
+                if (c1.type === ShapeType.LINE && c2.type === ShapeType.RECTANGLE) {
+                    [c1, c2] = [c2, c1];
+                }
+                if (c1.type === ShapeType.RECTANGLE && c2.type === ShapeType.LINE) {
+                    if (testRectLine(c1, c2, collisionInfo)) {
+                        continue;
                     }
                     continue;
                 }

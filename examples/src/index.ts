@@ -18,6 +18,9 @@ import { car3Init } from "./examples/Car3.js";
 import { car4Init, car4Update } from "./examples/Car4.js";
 import { carInteractiveInit, carInteractiveInput, carInteractiveUpdate } from "./examples/CarInteractive.js";
 import { marbleInit } from "./examples/Marble.js";
+import { lineCirclesInit } from "./examples/LineCircles.js";
+import { lineRectanglesInit } from "./examples/LineRectangles.js";
+import { lineMixedInit } from "./examples/LineMixed.js";
 import { wobblyJointsInit } from "./examples/WobblyJoints.js";
 import { teleporterInit, teleporterUpdate } from "./examples/Teleporter.js";
 import { patchMathPrecision } from "./runePatchMathPrecision.js";
@@ -147,6 +150,12 @@ function render() {
                 }
                 ctx.restore();
             }
+            if (shape.type === physics.ShapeType.LINE) {
+                ctx.beginPath();
+                ctx.moveTo(shape.start.x, shape.start.y);
+                ctx.lineTo(shape.end.x, shape.end.y);
+                ctx.stroke();
+            }
         }
 
 
@@ -197,6 +206,9 @@ const DEMOS: Demo[] = [
     { name: "Car Road", init: car4Init, update: car4Update},
     { name: "Car Interactive", init: carInteractiveInit, input: carInteractiveInput, update: carInteractiveUpdate },
     { name: "Marble", init: marbleInit },
+    { name: "Line Circles", init: lineCirclesInit },
+    { name: "Line Rectangles", init: lineRectanglesInit },
+    { name: "Line Mixed", init: lineMixedInit },
 ];
 
 const demoList = document.getElementById("demo");
